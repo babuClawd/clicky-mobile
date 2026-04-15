@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 import { Alert, Linking, Platform } from "react-native";
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -221,7 +222,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         if (Platform.OS === "web") {
           await playAudioBlob(await ttsRes.blob());
         } else {
-          const { FileSystem } = await import("expo-file-system");
           const buffer = await ttsRes.arrayBuffer();
           const bytes = new Uint8Array(buffer);
           let binary = "";
@@ -293,11 +293,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       setStatus("thinking");
 
       // Upload audio to ElevenLabs STT via our backend
-      const { FileSystem } = await import("expo-file-system");
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-
+      // React Native FormData supports { uri, name, type } object for file uploads
       const formData = new FormData();
-      // React Native FormData supports { uri, name, type } blobs
       formData.append("audio", {
         uri,
         name: "recording.m4a",
@@ -308,8 +305,6 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         method: "POST",
         body: formData,
       });
-
-      void base64; // just for silence on unused
 
       if (!transcribeRes.ok) throw new Error("Transcription failed");
       const { transcript } = await transcribeRes.json() as { transcript: string };
