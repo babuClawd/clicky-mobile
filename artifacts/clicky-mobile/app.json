@@ -14,10 +14,20 @@
       "backgroundColor": "#07080F"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Clicky needs microphone access to hear your voice commands.",
+        "NSSpeechRecognitionUsageDescription": "Clicky uses speech recognition to understand what you say."
+      }
     },
     "android": {
-      "backgroundColor": "#07080F"
+      "backgroundColor": "#07080F",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.VIBRATE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -30,7 +40,13 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Clicky needs microphone access to hear your voice commands."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

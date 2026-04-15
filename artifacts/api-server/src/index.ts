@@ -1,5 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import fs from "fs";
+
+// Ensure audio upload directory exists
+fs.mkdirSync("/tmp/clicky-audio", { recursive: true });
 
 const rawPort = process.env["PORT"];
 

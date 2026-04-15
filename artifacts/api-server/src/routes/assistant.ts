@@ -2,10 +2,22 @@ import { Router } from "express";
 import { ElevenLabsClient } from "elevenlabs";
 import { Turbopuffer } from "@turbopuffer/turbopuffer";
 import type { Request, Response } from "express";
+import multer from "multer";
+import fs from "fs";
 import { logger } from "../lib/logger";
 import { upsertSession, saveMessage, getSessionMessages, getSessions } from "../lib/db";
 
 const router = Router();
+
+// Multer: store uploaded audio in /tmp
+const upload = multer({
+  dest: "/tmp/clicky-audio/",
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB max
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["audio/mpeg", "audio/mp4", "audio/wav", "audio/webm", "audio/ogg", "audio/x-m4a", "audio/m4a", "audio/aac", "video/mp4", "application/octet-stream"];
+    cb(null, allowed.includes(file.mimetype) || file.originalname.match(/\.(mp3|mp4|m4a|wav|webm|ogg|aac|3gp)$/i) !== null);
+  },
+});
 
 const elevenlabs = new ElevenLabsClient({
   apiKey: process.env["ELEVENLABS_API_KEY"],
@@ -203,6 +215,37 @@ router.post("/tts", async (req: Request, res: Response) => {
   } catch (err) {
     logger.error({ err }, "TTS error");
     if (!res.headersSent) res.status(500).json({ error: "TTS failed" });
+  }
+});
+
+// ─── Transcribe — ElevenLabs STT from uploaded audio file ────────────────────
+
+// POST /api/assistant/transcribe  (multipart: field name = "audio")
+router.post("/transcribe", upload.single("audio"), async (req: Request, res: Response) => {
+  const file = (req as unknown as { file?: Express.Multer.File }).file;
+  if (!file) {
+    res.status(400).json({ error: "No audio file uploaded (field name must be 'audio')" });
+    return;
+  }
+
+  try {
+    const stream = fs.createReadStream(file.path);
+    const result = await elevenlabs.speechToText.convert({
+      file: stream,
+      model_id: "scribe_v1",
+      language_code: "en",
+    });
+
+    // Clean up temp file
+    fs.unlink(file.path, () => {});
+
+    const transcript = result.text?.trim() ?? "";
+    logger.info({ chars: transcript.length }, "ElevenLabs STT transcription done");
+    res.json({ transcript });
+  } catch (err) {
+    fs.unlink(file.path, () => {});
+    logger.error({ err }, "Transcription failed");
+    res.status(500).json({ error: "Transcription failed" });
   }
 });
 
