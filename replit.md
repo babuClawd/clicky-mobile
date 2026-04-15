@@ -2,7 +2,7 @@
 
 ## Overview
 
-A voice-first AI assistant mobile app built for the ElevenHacks 4 hackathon using ElevenLabs and Turbopuffer.
+A voice-first AI assistant mobile app built for the ElevenHacks 4 hackathon using ElevenLabs and Turbopuffer. Includes an in-app Clicky overlay (SDK-style) that floats on any screen and responds to voice without leaving the current context.
 
 ## Stack
 
@@ -11,53 +11,57 @@ A voice-first AI assistant mobile app built for the ElevenHacks 4 hackathon usin
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Database**: PostgreSQL (native pg, Replit-provisioned) + Turbopuffer (vector memory)
+- **Build**: esbuild (ESM bundle)
 
 ## Artifacts
 
 ### 1. Clicky Mobile (Expo React Native)
 - **Path**: `artifacts/clicky-mobile/`
 - **Preview**: `/` (root)
-- **Description**: Voice-first AI assistant mobile app
 - **Key Features**:
-  - Voice input via Web Speech API (web) / device mic (native)
-  - Text chat with ElevenLabs TTS response (streaming audio)
-  - Vector memory with Turbopuffer (stores/retrieves conversation context)
-  - Dark theme with glowing orb UI inspired by ChatGPT mobile
+  - Full chat screen with voice + text input
+  - ElevenLabs TTS audio (two-step: text reply from `/chat`, then audio from `/tts`)
+  - Floating Clicky overlay (in-app SDK style) — sparkles FAB on every screen
+  - Overlay slides up from bottom, shows transcript + response, plays voice
+  - Audio: `expo-av` on native, Web Audio API on web
+  - File writes for TTS: `expo-file-system` caches mp3 to device
 
 ### 2. API Server (Express)
 - **Path**: `artifacts/api-server/`
-- **Preview**: `/api`
+- **Port**: reads `PORT` env var
 - **Routes**:
-  - `GET /api/assistant/agent-config` — ElevenLabs agent config
-  - `POST /api/assistant/signed-url` — Get ElevenLabs Conversational AI signed URL
-  - `POST /api/assistant/chat` — Send message → get TTS audio + text reply
-  - `POST /api/assistant/memories` — Query Turbopuffer vector memories
-  - `POST /api/assistant/tts` — Text-to-speech (ElevenLabs)
+  - `POST /api/assistant/chat` → `{ reply, sessionId }` (JSON, stores to Postgres + Turbopuffer)
+  - `POST /api/assistant/tts` → audio/mpeg stream
+  - `GET  /api/assistant/sessions` → list all sessions
+  - `GET  /api/assistant/sessions/:id/messages` → messages for a session
+  - `POST /api/assistant/memories` → query Turbopuffer semantic memory
+  - `POST /api/assistant/signed-url` → ElevenLabs Conversational AI signed URL
+  - `GET  /api/assistant/agent-config` → ElevenLabs agent config
 
-## Environment Variables / Secrets Required
+## Database Schema (PostgreSQL)
 
-- `ELEVENLABS_API_KEY` — ElevenLabs API key
-- `TURBOPUFFER_API_KEY` — Turbopuffer API key
-- `TURBOPUFFER_REGION` — Turbopuffer region (default: `gcp-us-central1`)
-- `ELEVENLABS_AGENT_ID` — (optional) ElevenLabs Conversational AI agent ID for real-time voice
-- `GROQ_API_KEY` — (optional) Groq API key for faster LLM responses (llama-3.1-8b-instant)
+```sql
+sessions (id TEXT PK, created_at, updated_at, metadata JSONB)
+messages (id TEXT PK, session_id FK, role, content, created_at)
+```
 
-## Key Commands
+## Environment Variables / Secrets
 
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks
-- `pnpm --filter @workspace/api-server run dev` — run API server locally
+| Key | Purpose |
+|---|---|
+| `ELEVENLABS_API_KEY` | TTS + conversational AI |
+| `TURBOPUFFER_API_KEY` | Vector memory store |
+| `TURBOPUFFER_REGION` | Set to `gcp-us-central1` |
+| `SESSION_SECRET` | Express session signing |
+| `DATABASE_URL` / `PG*` | Replit PostgreSQL (auto-provisioned) |
+| `GROQ_API_KEY` | (optional) Enables LLM replies via llama-3.1-8b-instant |
+| `ELEVENLABS_AGENT_ID` | (optional) ElevenLabs Conversational AI agent |
+| `EXPO_PUBLIC_DOMAIN` | Set to `$REPLIT_DEV_DOMAIN` in Expo env |
 
-## Architecture
+## Architecture Notes
 
-The app uses a **hybrid memory approach**:
-1. **Short-term**: Messages stored in AsyncStorage on device
-2. **Long-term**: Conversation vectors stored in Turbopuffer namespace `clicky-memories` with session-based filtering
-3. **Voice**: ElevenLabs TTS streams audio directly from the `/chat` endpoint
-
-See the `pnpm-workspace` skill for workspace structure details.
+- **Text bug fix**: Chat now uses a two-step flow. `/chat` returns JSON text first (accessible in React Native). Then `/tts` fetches the audio separately. This avoids the header-inaccessibility issue with binary fetch responses on React Native.
+- **Turbopuffer memory**: Uses `ns.write({ upsert_rows })` and `ns.query({ rank_by: ["vector", "ANN", ...] })` (v2 API).
+- **ElevenLabs TTS**: Uses `elevenlabs.textToSpeech.convertAsStream()` (v1.59+ API).
+- **ClickyOverlay**: Standalone component (own session, own state), rendered globally in `_layout.tsx` via `position: absolute`.
