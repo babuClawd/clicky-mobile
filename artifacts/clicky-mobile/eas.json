@@ -7,7 +7,7 @@
     "development": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "85ac2627-c185-4fe7-8e5b-6415216d6a37-00-3shdsvt35m671.janeway.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "clicky-mobile.replit.app"
       },
       "android": {
         "buildType": "apk"
@@ -19,7 +19,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "85ac2627-c185-4fe7-8e5b-6415216d6a37-00-3shdsvt35m671.janeway.replit.dev"
+        "EXPO_PUBLIC_DOMAIN": "clicky-mobile.replit.app"
       },
       "android": {
         "buildType": "apk"
@@ -27,6 +27,9 @@
     },
     "production": {
       "distribution": "store",
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "clicky-mobile.replit.app"
+      },
       "android": {
         "buildType": "app-bundle"
       }
