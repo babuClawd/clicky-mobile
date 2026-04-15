@@ -114,12 +114,17 @@ async function generateReply(
   ];
 
   const res = await openai.chat.completions.create({
-    model: "gpt-5-mini",
+    model: "gpt-5.2",
     max_completion_tokens: 200,
     messages: chatMessages,
   });
 
-  return res.choices[0]?.message?.content?.trim() ?? "Sorry, I couldn't generate a response.";
+  const content = res.choices[0]?.message?.content?.trim();
+  if (!content) {
+    logger.warn({ finish_reason: res.choices[0]?.finish_reason }, "OpenAI returned empty content");
+    return "Sorry, I had trouble generating a response. Please try again.";
+  }
+  return content;
 }
 
 // ─── Session routes ────────────────────────────────────────────────────────────

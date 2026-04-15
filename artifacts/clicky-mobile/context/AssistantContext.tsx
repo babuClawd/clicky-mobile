@@ -27,6 +27,13 @@ export type AssistantStatus =
   | "speaking"
   | "error";
 
+export interface Session {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  message_count: string;
+}
+
 interface AssistantContextValue {
   messages: Message[];
   status: AssistantStatus;
@@ -36,10 +43,13 @@ interface AssistantContextValue {
   stopListening: () => void;
   sendMessage: (text: string) => Promise<void>;
   clearHistory: () => Promise<void>;
+  createNewSession: () => Promise<void>;
+  loadSession: (id: string) => Promise<void>;
+  fetchSessions: () => Promise<Session[]>;
   currentTranscript: string;
   lastReply: string;
   hasMicPermission: boolean;
-  audioLevel: number; // 0–1, live mic level during recording
+  audioLevel: number;
 }
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -430,18 +440,75 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, stopNativeRecording]);
 
-  const clearHistory = useCallback(async () => {
+  // ── Create a fresh session ────────────────────────────────────────────────
+  const createNewSession = useCallback(async () => {
     if (soundRef.current) { await soundRef.current.unloadAsync().catch(() => {}); soundRef.current = null; }
     if (recordingRef.current) { await recordingRef.current.stopAndUnloadAsync().catch(() => {}); recordingRef.current = null; }
+    const newId = generateId();
+    await AsyncStorage.setItem(SESSION_KEY, newId);
+    setSessionId(newId);
+    setLastReply("");
+    setCurrentTranscript("");
+    setStatus("idle");
+    await AsyncStorage.removeItem(MESSAGES_KEY);
     setMessages([{
       id: generateId(),
       role: "assistant",
-      text: "History cleared. How can I help you?",
+      text: "New chat started. What can I help you with?",
       timestamp: Date.now(),
     }]);
-    setLastReply("");
-    await AsyncStorage.removeItem(MESSAGES_KEY);
   }, []);
+
+  // ── Load an existing session from the API ─────────────────────────────────
+  const loadSession = useCallback(async (id: string) => {
+    if (soundRef.current) { await soundRef.current.unloadAsync().catch(() => {}); soundRef.current = null; }
+    if (recordingRef.current) { await recordingRef.current.stopAndUnloadAsync().catch(() => {}); recordingRef.current = null; }
+    setStatus("thinking");
+    try {
+      const res = await fetch(`${BASE_URL}/api/assistant/sessions/${id}/messages`);
+      if (!res.ok) throw new Error("Failed to load session");
+      const { messages: raw } = await res.json() as {
+        messages: Array<{ id: string; role: string; content: string; created_at: string }>;
+      };
+      const loaded: Message[] = raw.map((m) => ({
+        id: m.id,
+        role: m.role as MessageRole,
+        text: m.content,
+        timestamp: new Date(m.created_at).getTime(),
+      }));
+      await AsyncStorage.setItem(SESSION_KEY, id);
+      setSessionId(id);
+      setMessages(loaded.length > 0 ? loaded : [{
+        id: generateId(),
+        role: "assistant",
+        text: "Session loaded. What else can I help you with?",
+        timestamp: Date.now(),
+      }]);
+      setLastReply("");
+      setCurrentTranscript("");
+      await AsyncStorage.setItem(MESSAGES_KEY, JSON.stringify(loaded.slice(-MAX_MESSAGES)));
+    } catch (err) {
+      console.error("loadSession error:", err);
+    } finally {
+      setStatus("idle");
+    }
+  }, []);
+
+  // ── Fetch all sessions from the API ───────────────────────────────────────
+  const fetchSessions = useCallback(async (): Promise<Session[]> => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/assistant/sessions`);
+      if (!res.ok) return [];
+      const { sessions } = await res.json() as { sessions: Session[] };
+      return sessions;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const clearHistory = useCallback(async () => {
+    await createNewSession();
+  }, [createNewSession]);
 
   return (
     <AssistantContext.Provider value={{
@@ -453,6 +520,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       stopListening: () => { void stopListening(); },
       sendMessage,
       clearHistory,
+      createNewSession,
+      loadSession,
+      fetchSessions,
       currentTranscript,
       lastReply,
       hasMicPermission,

@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   FlatList,
   Platform,
@@ -16,6 +16,7 @@ import { VoiceOrb } from "@/components/VoiceOrb";
 import { MessageBubble } from "@/components/MessageBubble";
 import { AssistantStatusBar } from "@/components/StatusBar";
 import { ChatInput } from "@/components/TextInput";
+import { SessionsDrawer } from "@/components/SessionsDrawer";
 import type { Message } from "@/context/AssistantContext";
 
 export default function AssistantScreen() {
@@ -28,10 +29,11 @@ export default function AssistantScreen() {
     startListening,
     stopListening,
     sendMessage,
-    clearHistory,
+    createNewSession,
     currentTranscript,
   } = useAssistant();
 
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
 
   const handleOrbPress = () => {
@@ -43,12 +45,12 @@ export default function AssistantScreen() {
   };
 
   const isDisabled = status !== "idle";
-
   const topPad = Platform.OS === "web" ? 60 : insets.top;
   const bottomPad = Platform.OS === "web" ? 20 : insets.bottom;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View
         style={[
           styles.header,
@@ -59,38 +61,37 @@ export default function AssistantScreen() {
           },
         ]}
       >
-        <View style={styles.headerLeft}>
-          <View
-            style={[
-              styles.headerOrb,
-              { backgroundColor: colors.primary, shadowColor: colors.primary },
-            ]}
-          >
-            <Ionicons name="sparkles" size={14} color="#fff" />
-          </View>
-          <View>
-            <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-              Clicky
-            </Text>
-            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-              Your AI assistant
-            </Text>
-          </View>
-        </View>
+        {/* Left: sessions menu */}
         <TouchableOpacity
-          onPress={clearHistory}
-          style={[styles.headerAction, { backgroundColor: colors.surface }]}
+          onPress={() => setDrawerOpen(true)}
+          style={[styles.headerBtn, { backgroundColor: colors.surface }]}
           activeOpacity={0.7}
         >
-          <Ionicons name="trash-outline" size={18} color={colors.mutedForeground} />
+          <Ionicons name="menu-outline" size={20} color={colors.mutedForeground} />
+        </TouchableOpacity>
+
+        {/* Centre: logo + title */}
+        <View style={styles.headerCenter}>
+          <View style={[styles.headerOrb, { backgroundColor: colors.primary, shadowColor: colors.primary }]}>
+            <Ionicons name="sparkles" size={13} color="#fff" />
+          </View>
+          <View>
+            <Text style={[styles.headerTitle, { color: colors.foreground }]}>Clicky</Text>
+            <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Your AI assistant</Text>
+          </View>
+        </View>
+
+        {/* Right: new chat */}
+        <TouchableOpacity
+          onPress={() => void createNewSession()}
+          style={[styles.headerBtn, { backgroundColor: colors.surface }]}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="create-outline" size={20} color={colors.mutedForeground} />
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior="padding"
-        keyboardVerticalOffset={0}
-      >
+      <KeyboardAvoidingView style={styles.flex} behavior="padding" keyboardVerticalOffset={0}>
         <FlatList
           ref={flatListRef}
           data={[...messages].reverse()}
@@ -108,12 +109,7 @@ export default function AssistantScreen() {
           ListFooterComponent={<View style={{ height: 8 }} />}
         />
 
-        <View
-          style={[
-            styles.voiceSection,
-            { borderTopColor: colors.border },
-          ]}
-        >
+        <View style={[styles.voiceSection, { borderTopColor: colors.border }]}>
           <VoiceOrb status={status} onPress={handleOrbPress} size={80} />
         </View>
 
@@ -121,55 +117,54 @@ export default function AssistantScreen() {
           <ChatInput onSend={sendMessage} disabled={isDisabled} />
         </View>
       </KeyboardAvoidingView>
+
+      {/* Sessions drawer — rendered last so it floats above content */}
+      <SessionsDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  flex: {
-    flex: 1,
-  },
+  root: { flex: 1 },
+  flex: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerLeft: {
+  headerCenter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   headerOrb: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowRadius: 8,
+    elevation: 5,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: "Inter_700Bold",
     letterSpacing: -0.3,
   },
   headerSub: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: "Inter_400Regular",
     marginTop: 1,
   },
-  headerAction: {
+  headerBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -184,7 +179,5 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  inputSection: {
-    paddingTop: 4,
-  },
+  inputSection: { paddingTop: 4 },
 });
