@@ -128,10 +128,15 @@ function getRequestTimezone(): string | undefined {
 
 export const BASE_URL = `https://${process.env["EXPO_PUBLIC_DOMAIN"] ?? ""}`;
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+// On web we use cookie-based auth (credentials: "include").
+// On native we use Authorization: Bearer stored in SecureStore.
+async function getAuthFetchOptions(): Promise<{ headers?: Record<string, string>; credentials?: RequestCredentials }> {
+  if (Platform.OS === "web") {
+    return { credentials: "include" };
+  }
   try {
     const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
-    if (token) return { Authorization: `Bearer ${token}` };
+    if (token) return { headers: { Authorization: `Bearer ${token}` } };
   } catch {}
   return {};
 }
@@ -328,9 +333,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
               ? `data:image/jpeg;base64,${attachment.base64}`
               : undefined;
 
+        const chatAuthOpts = await getAuthFetchOptions();
         const chatRes = await fetch(`${BASE_URL}/api/assistant/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+          ...chatAuthOpts,
+          headers: { "Content-Type": "application/json", ...(chatAuthOpts.headers ?? {}) },
           body: JSON.stringify({
             message: trimmed,
             sessionId,
@@ -356,9 +363,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         setLastReply(reply);
         setStatus("speaking");
 
+        const ttsAuthOpts = await getAuthFetchOptions();
         const ttsRes = await fetch(`${BASE_URL}/api/assistant/tts`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
+          ...ttsAuthOpts,
+          headers: { "Content-Type": "application/json", ...(ttsAuthOpts.headers ?? {}) },
           body: JSON.stringify({ text: reply }),
         });
 
@@ -497,9 +506,10 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
         } as unknown as Blob,
       );
 
+      const transcribeAuthOpts = await getAuthFetchOptions();
       const transcribeRes = await fetch(`${BASE_URL}/api/assistant/transcribe`, {
         method: "POST",
-        headers: await getAuthHeaders(),
+        ...transcribeAuthOpts,
         body: formData,
       });
 
@@ -648,8 +658,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
     setStatus("thinking");
     try {
+      const sessMessAuthOpts = await getAuthFetchOptions();
       const res = await fetch(`${BASE_URL}/api/assistant/sessions/${id}/messages`, {
-        headers: await getAuthHeaders(),
+        ...sessMessAuthOpts,
       });
       if (!res.ok) {
         throw new Error("Failed to load session");
@@ -697,8 +708,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSessions = useCallback(async (): Promise<Session[]> => {
     try {
+      const sessAuthOpts = await getAuthFetchOptions();
       const res = await fetch(`${BASE_URL}/api/assistant/sessions`, {
-        headers: await getAuthHeaders(),
+        ...sessAuthOpts,
       });
       if (!res.ok) {
         return [];

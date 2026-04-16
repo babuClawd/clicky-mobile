@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { Platform } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as SecureStore from "expo-secure-store";
@@ -8,7 +16,7 @@ WebBrowser.maybeCompleteAuthSession();
 export const AUTH_TOKEN_KEY = "auth_session_token";
 const ISSUER_URL = process.env["EXPO_PUBLIC_ISSUER_URL"] ?? "https://replit.com/oidc";
 
-interface User {
+export interface AuthUser {
   id: string;
   email: string | null;
   firstName: string | null;
@@ -17,7 +25,7 @@ interface User {
 }
 
 interface AuthContextValue {
-  user: User | null;
+  user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: () => Promise<void>;
@@ -32,7 +40,7 @@ const AuthContext = createContext<AuthContextValue>({
   logout: async () => {},
 });
 
-function getApiBaseUrl(): string {
+export function getApiBaseUrl(): string {
   if (process.env["EXPO_PUBLIC_DOMAIN"]) {
     return `https://${process.env["EXPO_PUBLIC_DOMAIN"]}`;
   }
@@ -43,12 +51,61 @@ function getClientId(): string {
   return process.env["EXPO_PUBLIC_REPL_ID"] || "";
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+// ─── Web Auth Provider ────────────────────────────────────────────────────────
+// On web we use server-side OIDC via /api/login (cookie-based).
+// This avoids popup/opener issues inside the Replit iframe preview.
+
+function WebAuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchUser = useCallback(async () => {
+    try {
+      const apiBase = getApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/auth/user`, {
+        credentials: "include",
+      });
+      const data = (await res.json()) as { user?: AuthUser };
+      setUser(data.user ?? null);
+    } catch {
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  const login = useCallback(async () => {
+    const apiBase = getApiBaseUrl();
+    const returnTo = encodeURIComponent(window.location.href);
+    window.location.href = `${apiBase}/api/login?returnTo=${returnTo}`;
+  }, []);
+
+  const logout = useCallback(async () => {
+    const apiBase = getApiBaseUrl();
+    window.location.href = `${apiBase}/api/logout`;
+  }, []);
+
+  return (
+    <AuthContext.Provider
+      value={{ user, isLoading, isAuthenticated: !!user, login, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// ─── Native Auth Provider ─────────────────────────────────────────────────────
+// On iOS/Android we use PKCE + token stored in SecureStore.
+
+function NativeAuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const discovery = AuthSession.useAutoDiscovery(ISSUER_URL);
-
   const redirectUri = AuthSession.makeRedirectUri();
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
@@ -74,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${apiBase}/api/auth/user`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json() as { user?: User };
+      const data = (await res.json()) as { user?: AuthUser };
 
       if (data.user) {
         setUser(data.user);
@@ -101,10 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const apiBase = getApiBaseUrl();
-        if (!apiBase) {
-          console.error("API base URL is not configured.");
-          return;
-        }
+        if (!apiBase) return;
 
         const exchangeRes = await fetch(`${apiBase}/api/mobile-auth/token-exchange`, {
           method: "POST",
@@ -124,7 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const data = await exchangeRes.json() as { token?: string };
+        const data = (await exchangeRes.json()) as { token?: string };
         if (data.token) {
           await SecureStore.setItemAsync(AUTH_TOKEN_KEY, data.token);
           setIsLoading(true);
@@ -164,17 +218,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        isAuthenticated: !!user,
-        login,
-        logout,
-      }}
+      value={{ user, isLoading, isAuthenticated: !!user, login, logout }}
     >
       {children}
     </AuthContext.Provider>
   );
+}
+
+// ─── Unified Provider ─────────────────────────────────────────────────────────
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  if (Platform.OS === "web") {
+    return <WebAuthProvider>{children}</WebAuthProvider>;
+  }
+  return <NativeAuthProvider>{children}</NativeAuthProvider>;
 }
 
 export function useAuth(): AuthContextValue {

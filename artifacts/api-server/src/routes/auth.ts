@@ -34,7 +34,9 @@ function setSessionCookie(res: Response, sid: string) {
   res.cookie(SESSION_COOKIE, sid, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    // "none" lets the cookie be sent in cross-origin fetch requests (e.g. from
+    // the Expo web preview domain to the API domain). Requires secure:true.
+    sameSite: "none",
     path: "/",
     maxAge: SESSION_TTL,
   });
@@ -51,10 +53,12 @@ function setOidcCookie(res: Response, name: string, value: string) {
 }
 
 function getSafeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
-  }
-  return value;
+  if (typeof value !== "string") return "/";
+  // Allow relative paths
+  if (value.startsWith("/") && !value.startsWith("//")) return value;
+  // Allow full https:// URLs (e.g. Expo web preview returning from auth)
+  if (value.startsWith("https://")) return value;
+  return "/";
 }
 
 async function upsertUser(claims: Record<string, unknown>) {
