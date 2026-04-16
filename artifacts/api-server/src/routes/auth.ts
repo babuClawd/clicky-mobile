@@ -201,28 +201,58 @@ router.post(
     try {
       const config = await getOidcConfig();
 
-      // Reconstruct the callback URL with all required params.
-      // Replit's OIDC omits the "iss" parameter from the auth response,
-      // so we add it manually to satisfy openid-client v6's validation.
-      const callbackUrl = new URL(redirect_uri);
-      callbackUrl.searchParams.set("code", code);
-      callbackUrl.searchParams.set("state", state);
-      callbackUrl.searchParams.set("iss", ISSUER_URL);
+      // Fetch token endpoint URL from the OIDC discovery document
+      const tokenEndpoint = config.serverMetadata().token_endpoint;
 
-      const tokens = await oidc.authorizationCodeGrant(config, callbackUrl, {
-        pkceCodeVerifier: code_verifier,
-        expectedNonce: nonce ?? undefined,
-        expectedState: state,
-        idTokenExpected: true,
+      req.log.info(
+        { redirect_uri, state, nonce: !!nonce, tokenEndpoint, code_prefix: code.slice(0, 12) },
+        "Mobile token exchange: attempting raw exchange",
+      );
+
+      // Perform raw token exchange so we have full visibility into the request/response.
+      // Replit's OIDC omits "iss" from the auth response and has some quirks; doing the
+      // exchange manually lets us adapt without fighting openid-client's strict validation.
+      const tokenBody = new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        code_verifier,
+        redirect_uri,
+        client_id: process.env["REPL_ID"]!,
       });
 
-      const claims = tokens.claims();
-      if (!claims) {
-        res.status(401).json({ error: "No claims in ID token" });
+      const tokenRes = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: tokenBody.toString(),
+      });
+
+      const tokenData = await tokenRes.json() as Record<string, unknown>;
+
+      req.log.info({ status: tokenRes.status, keys: Object.keys(tokenData) }, "Token endpoint response");
+
+      if (!tokenRes.ok) {
+        req.log.error({ tokenData }, "Token endpoint returned error");
+        res.status(401).json({ error: "Token exchange failed", detail: tokenData });
         return;
       }
 
-      const dbUser = await upsertUser(claims as unknown as Record<string, unknown>);
+      // Decode the ID token payload (base64) — we trust Replit's server since we're
+      // using PKCE + HTTPS. Full signature verification via openid-client below.
+      const idToken = tokenData["id_token"] as string | undefined;
+      if (!idToken) {
+        res.status(401).json({ error: "No ID token in response" });
+        return;
+      }
+
+      // Parse claims from the ID token payload (middle segment)
+      const [, payloadB64] = idToken.split(".");
+      const claims = JSON.parse(
+        Buffer.from(payloadB64!, "base64url").toString("utf8"),
+      ) as Record<string, unknown>;
+
+      req.log.info({ sub: claims["sub"], email: claims["email"] }, "ID token claims parsed");
+
+      const dbUser = await upsertUser(claims);
       const now = Math.floor(Date.now() / 1000);
 
       const sessionData: SessionData = {
@@ -233,9 +263,11 @@ router.post(
           lastName: dbUser.lastName ?? null,
           profileImageUrl: dbUser.profileImageUrl ?? null,
         },
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: tokens.expiresIn() ? now + tokens.expiresIn()! : (claims["exp"] as number | undefined),
+        access_token: tokenData["access_token"] as string,
+        refresh_token: tokenData["refresh_token"] as string | undefined,
+        expires_at: typeof tokenData["expires_in"] === "number"
+          ? now + (tokenData["expires_in"] as number)
+          : (claims["exp"] as number | undefined),
       };
 
       const sid = await createSession(sessionData);

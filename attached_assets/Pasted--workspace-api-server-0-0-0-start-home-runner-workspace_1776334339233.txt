@@ -1,0 +1,66 @@
+> @workspace/api-server@0.0.0 start /home/runner/workspace/artifacts/api-server
+> node --enable-source-maps ./dist/index.mjs
+
+[09:51:08.267] INFO (4398): Server listening
+    port: 8080
+[10:00:25.007] INFO (4398): request completed
+    req: {
+      "id": 1,
+      "method": "OPTIONS",
+      "url": "/api/mobile-auth/token-exchange"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 4
+[10:00:25.460] ERROR (4398): Mobile token exchange error
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/mobile-auth/token-exchange"
+    }
+    err: {
+      "type": "ResponseBodyError",
+      "message": "server responded with an error in the response body",
+      "stack":
+          ResponseBodyError: server responded with an error in the response body
+              at checkOAuthBodyError (/home/runner/workspace/node_modules/.pnpm/oauth4webapi@3.8.5/node_modules/oauth4webapi/src/index.ts:2835:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+              at async processGenericAccessTokenResponse (/home/runner/workspace/node_modules/.pnpm/oauth4webapi@3.8.5/node_modules/oauth4webapi/src/index.ts:3571:3)
+              at async processAuthorizationCodeOpenIDResponse (/home/runner/workspace/node_modules/.pnpm/oauth4webapi@3.8.5/node_modules/oauth4webapi/src/index.ts:4085:18)
+              at async authorizationCodeGrant (/home/runner/workspace/node_modules/.pnpm/openid-client@6.8.3/node_modules/openid-client/src/index.ts:3441:14)
+              at async <anonymous> (/home/runner/workspace/artifacts/api-server/src/routes/auth.ts:212:22)
+      "cause": {
+        "error": "invalid_grant",
+        "error_description": "grant request is invalid"
+      },
+      "code": "OAUTH_RESPONSE_BODY_ERROR",
+      "error": "invalid_grant",
+      "status": 400,
+      "error_description": "grant request is invalid",
+      "name": "ResponseBodyError"
+    }
+[10:00:25.593] INFO (4398): request errored
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/mobile-auth/token-exchange"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 331
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:520:35)
+              at onFinish (node:_http_outgoing:1026:10)
+              at callback (node:internal/streams/writable:764:21)
+              at afterWrite (node:internal/streams/writable:708:5)
+              at afterWriteTick (node:internal/streams/writable:694:10)
+              at process.processTicksAndRejections (node:internal/process/task_queues:88:21)
+    }
