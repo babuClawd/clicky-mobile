@@ -81,6 +81,22 @@ async function upsertUser(claims: Record<string, unknown>) {
   return user!;
 }
 
+// Native auth bounce endpoint.
+// Replit OIDC only accepts https:// redirect URIs on Replit-controlled
+// domains. Native (iOS/Android, including Expo Go) cannot use a custom-scheme
+// redirect URI directly with Replit OIDC. Instead, the native app uses this
+// endpoint as the OIDC redirect_uri. expo-auth-session's openAuthSessionAsync
+// will detect this URL match and close the in-app browser, returning the
+// `code` and `state` query params to the app for token exchange.
+router.get("/native-callback", (_req: Request, res: Response) => {
+  res
+    .status(200)
+    .type("html")
+    .send(
+      `<!doctype html><html><head><meta charset="utf-8"><title>Returning to Clicky…</title></head><body style="background:#0C0B0A;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div>Returning to Clicky…</div></body></html>`,
+    );
+});
+
 router.get("/auth/user", (req: Request, res: Response) => {
   res.json(
     GetCurrentAuthUserResponse.parse({

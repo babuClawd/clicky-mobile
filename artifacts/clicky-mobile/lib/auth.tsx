@@ -106,7 +106,12 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const discovery = AuthSession.useAutoDiscovery(ISSUER_URL);
-  const redirectUri = AuthSession.makeRedirectUri();
+  // Replit OIDC requires an https:// redirect URI on a Replit-controlled
+  // domain. Custom schemes (clicky-mobile://) and Expo Go's exp:// URLs are
+  // rejected as "invalid_request" / cause "Failed to download remote update".
+  // We use an HTTPS bounce route on our API server; expo-auth-session's
+  // in-app browser will detect this URL and close, returning code+state.
+  const redirectUri = `${getApiBaseUrl()}/api/native-callback`;
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
