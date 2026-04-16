@@ -2,6 +2,9 @@
 
 Clicky is a voice-first AI assistant mobile app built for **ElevenHacks 4**. Talk to Clicky, share a screenshot when a screen is confusing, and get a short spoken answer back with memory that persists across conversations.
 
+<img width="780" height="1178" alt="Screenshot 2026-04-16 182054" src="https://github.com/user-attachments/assets/882d33d4-f822-44be-8119-95fe2eca82d3" />
+
+
 ## Features
 
 - **Push-to-talk voice input** - press the mic, speak, release; silence detection auto-sends after about 1.4 seconds
