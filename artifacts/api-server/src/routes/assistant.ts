@@ -6,17 +6,11 @@ import multer from "multer";
 import fs from "fs";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
-import {
-  upsertSession,
-  saveMessage,
-  getSessionMessages,
-  getSessions,
-} from "../lib/db";
+import { upsertSession, saveMessage, getSessionMessages, getSessions } from "../lib/db";
 
 const router = Router();
 
-const DEFAULT_SCREENSHOT_PROMPT =
-  "Help me understand this screen and what to do next.";
+const DEFAULT_SCREENSHOT_PROMPT = "Help me understand this screen and what to do next.";
 const NAMESPACE = "clicky-memories";
 const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 const OPENAI_MODEL = "gpt-5.2";
@@ -71,8 +65,7 @@ const audioUpload = multer({
     cb(
       null,
       allowed.includes(file.mimetype) ||
-        file.originalname.match(/\.(mp3|mp4|m4a|wav|webm|ogg|aac|3gp)$/i) !==
-          null,
+        file.originalname.match(/\.(mp3|mp4|m4a|wav|webm|ogg|aac|3gp)$/i) !== null,
     );
   },
 });
@@ -109,26 +102,17 @@ function simpleEmbedding(text: string): number[] {
   for (const word of words) {
     const hash = word
       .split("")
-      .reduce(
-        (acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) & 0x7fffffff,
-        0,
-      );
+      .reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) & 0x7fffffff, 0);
     for (let index = 0; index < word.length; index += 1) {
       vec[(word.charCodeAt(index) * (index + 1) * 31) % dims] += 1;
     }
     vec[hash % dims] += 2;
   }
-  const magnitude = Math.sqrt(
-    vec.reduce((sum, value) => sum + value * value, 0),
-  );
+  const magnitude = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
   return magnitude === 0 ? vec : vec.map((value) => value / magnitude);
 }
 
-async function storeMemory(
-  sessionId: string,
-  role: string,
-  text: string,
-): Promise<void> {
+async function storeMemory(sessionId: string, role: string, text: string): Promise<void> {
   try {
     const namespace = tpuf.namespace(NAMESPACE);
     const id = `${sessionId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
@@ -150,11 +134,7 @@ async function storeMemory(
   }
 }
 
-async function retrieveMemories(
-  query: string,
-  sessionId: string,
-  topK = 5,
-): Promise<string[]> {
+async function retrieveMemories(query: string, sessionId: string, topK = 5): Promise<string[]> {
   try {
     const namespace = tpuf.namespace(NAMESPACE);
     const results = await namespace.query({
@@ -165,11 +145,8 @@ async function retrieveMemories(
       include_attributes: ["text", "role"],
     });
     const rows =
-      (
-        results as {
-          rows?: Array<{ $dist?: number; role?: string; text?: string }>;
-        }
-      ).rows ?? [];
+      (results as { rows?: Array<{ $dist?: number; role?: string; text?: string }> }).rows ??
+      [];
     return rows
       .filter((row) => (row.$dist ?? 1) < 0.85)
       .map((row) => `[${row.role}]: ${row.text}`);
@@ -190,9 +167,7 @@ function formatToday(requestContext?: AssistantRequestContext): string {
       year: "numeric",
       month: "long",
       day: "numeric",
-      ...(requestContext?.timezone
-        ? { timeZone: requestContext.timezone }
-        : {}),
+      ...(requestContext?.timezone ? { timeZone: requestContext.timezone } : {}),
     }).format(new Date());
   } catch {
     return new Date().toLocaleDateString("en-US", {
@@ -237,9 +212,7 @@ function buildInstructions(
     "Whenever the question depends on current facts, recent events, product availability, prices, policies, releases, or anything marked latest/current/today, use live web search before answering.",
     "Do not claim you checked the web unless you actually used web results.",
     `Today is ${formatToday(requestContext)}.`,
-    memoryContext
-      ? `Relevant memories from past conversations:\n${memoryContext}`
-      : "",
+    memoryContext ? `Relevant memories from past conversations:\n${memoryContext}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -316,9 +289,7 @@ function safeHost(url: string): string {
   }
 }
 
-function extractWebSources(response: {
-  output?: unknown[];
-}): AssistantSource[] {
+function extractWebSources(response: { output?: unknown[] }): AssistantSource[] {
   if (!Array.isArray(response.output)) {
     return [];
   }
@@ -421,9 +392,7 @@ async function generateLegacyReply(
       ? "The user tried to share a screenshot, but this server could not run image analysis. Briefly explain that limitation and ask them to describe the key on-screen text or action they need help with."
       : "",
     `Today is ${formatToday(requestContext)}.`,
-    memoryContext
-      ? `Relevant memories from past conversations:\n${memoryContext}`
-      : "",
+    memoryContext ? `Relevant memories from past conversations:\n${memoryContext}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -454,9 +423,7 @@ async function generateLegacyReply(
   return content;
 }
 
-async function generateReply(
-  options: GenerateReplyOptions,
-): Promise<AssistantReplyPayload> {
+async function generateReply(options: GenerateReplyOptions): Promise<AssistantReplyPayload> {
   try {
     return await generateResponsesReply({ ...options, enableWebSearch: true });
   } catch (error) {
@@ -511,12 +478,7 @@ async function runAssistantTurn(options: {
   ]);
 
   await Promise.all([
-    saveMessage(
-      generateId(),
-      options.sessionId,
-      "user",
-      options.persistedUserContent,
-    ),
+    saveMessage(generateId(), options.sessionId, "user", options.persistedUserContent),
     storeMemory(options.sessionId, "user", options.persistedUserContent),
   ]);
 
@@ -529,12 +491,7 @@ async function runAssistantTurn(options: {
   });
 
   await Promise.all([
-    saveMessage(
-      generateId(),
-      options.sessionId,
-      "assistant",
-      replyPayload.reply,
-    ),
+    saveMessage(generateId(), options.sessionId, "assistant", replyPayload.reply),
     storeMemory(options.sessionId, "assistant", replyPayload.reply),
   ]);
 
@@ -551,19 +508,16 @@ router.get("/sessions", async (_req: Request, res: Response) => {
   }
 });
 
-router.get(
-  "/sessions/:sessionId/messages",
-  async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params as { sessionId: string };
-      const messages = await getSessionMessages(sessionId);
-      res.json({ messages: messages.reverse() });
-    } catch (error) {
-      logger.error({ err: error }, "Failed to get messages");
-      res.status(500).json({ error: "Failed to get messages" });
-    }
-  },
-);
+router.get("/sessions/:sessionId/messages", async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params as { sessionId: string };
+    const messages = await getSessionMessages(sessionId);
+    res.json({ messages: messages.reverse() });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to get messages");
+    res.status(500).json({ error: "Failed to get messages" });
+  }
+});
 
 router.post("/chat", async (req: Request, res: Response) => {
   try {
@@ -591,13 +545,10 @@ router.post("/chat", async (req: Request, res: Response) => {
     }
 
     const trimmedMessage = message?.trim() ?? "";
-    const userMessage =
-      trimmedMessage || (imageDataUrl ? DEFAULT_SCREENSHOT_PROMPT : "");
+    const userMessage = trimmedMessage || (imageDataUrl ? DEFAULT_SCREENSHOT_PROMPT : "");
 
     if (!userMessage) {
-      res
-        .status(400)
-        .json({ error: "message is required when no screenshot is attached" });
+      res.status(400).json({ error: "message is required when no screenshot is attached" });
       return;
     }
 
@@ -644,20 +595,17 @@ router.post("/tts", async (req: Request, res: Response) => {
       return;
     }
 
-    const stream = await elevenlabs.textToSpeech.convertAsStream(
-      voiceId ?? VOICE_ID,
-      {
-        text,
-        model_id: "eleven_turbo_v2_5",
-        output_format: "mp3_44100_128",
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0,
-          use_speaker_boost: true,
-        },
+    const stream = await elevenlabs.textToSpeech.convertAsStream(voiceId ?? VOICE_ID, {
+      text,
+      model_id: "eleven_turbo_v2_5",
+      output_format: "mp3_44100_128",
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.0,
+        use_speaker_boost: true,
       },
-    );
+    });
 
     res.setHeader("Content-Type", "audio/mpeg");
     for await (const chunk of stream) {
@@ -672,41 +620,32 @@ router.post("/tts", async (req: Request, res: Response) => {
   }
 });
 
-router.post(
-  "/transcribe",
-  audioUpload.single("audio"),
-  async (req: Request, res: Response) => {
-    const file = (req as unknown as { file?: Express.Multer.File }).file;
-    if (!file) {
-      res
-        .status(400)
-        .json({ error: "No audio file uploaded (field name must be 'audio')" });
-      return;
-    }
+router.post("/transcribe", audioUpload.single("audio"), async (req: Request, res: Response) => {
+  const file = (req as unknown as { file?: Express.Multer.File }).file;
+  if (!file) {
+    res.status(400).json({ error: "No audio file uploaded (field name must be 'audio')" });
+    return;
+  }
 
-    try {
-      const stream = fs.createReadStream(file.path);
-      const result = await elevenlabs.speechToText.convert({
-        file: stream,
-        model_id: "scribe_v1",
-        language_code: "en",
-      });
+  try {
+    const stream = fs.createReadStream(file.path);
+    const result = await elevenlabs.speechToText.convert({
+      file: stream,
+      model_id: "scribe_v1",
+      language_code: "en",
+    });
 
-      fs.unlink(file.path, () => {});
+    fs.unlink(file.path, () => {});
 
-      const transcript = result.text?.trim() ?? "";
-      logger.info(
-        { chars: transcript.length },
-        "ElevenLabs STT transcription done",
-      );
-      res.json({ transcript });
-    } catch (error) {
-      fs.unlink(file.path, () => {});
-      logger.error({ err: error }, "Transcription failed");
-      res.status(500).json({ error: "Transcription failed" });
-    }
-  },
-);
+    const transcript = result.text?.trim() ?? "";
+    logger.info({ chars: transcript.length }, "ElevenLabs STT transcription done");
+    res.json({ transcript });
+  } catch (error) {
+    fs.unlink(file.path, () => {});
+    logger.error({ err: error }, "Transcription failed");
+    res.status(500).json({ error: "Transcription failed" });
+  }
+});
 
 router.get("/agent-config", (_req: Request, res: Response) => {
   res.json({
@@ -725,9 +664,7 @@ router.post("/signed-url", async (req: Request, res: Response) => {
       res.status(400).json({ error: "No ElevenLabs agent ID configured." });
       return;
     }
-    const result = await elevenlabs.conversationalAi.getSignedUrl({
-      agent_id: agentId,
-    });
+    const result = await elevenlabs.conversationalAi.getSignedUrl({ agent_id: agentId });
     res.json({ signedUrl: result.signed_url });
   } catch (error) {
     logger.error({ err: error }, "Failed to get signed URL");
@@ -737,10 +674,7 @@ router.post("/signed-url", async (req: Request, res: Response) => {
 
 router.post("/memories", async (req: Request, res: Response) => {
   try {
-    const { query, sessionId } = req.body as {
-      query?: string;
-      sessionId?: string;
-    };
+    const { query, sessionId } = req.body as { query?: string; sessionId?: string };
     if (!query || !sessionId) {
       res.status(400).json({ error: "query and sessionId are required" });
       return;

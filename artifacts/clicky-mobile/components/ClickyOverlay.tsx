@@ -17,7 +17,7 @@ function AudioBars({ level, color }: { level: number; color: string }) {
   // Each bar has a different multiplier so they animate at different heights
   const multipliers = [0.5, 0.8, 1.0, 0.8, 0.5];
   const anims = useRef(multipliers.map(() => new Animated.Value(0.15))).current;
-  const rafRef = useRef<NodeJS.Timeout | null>(null);
+  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (rafRef.current) clearTimeout(rafRef.current);

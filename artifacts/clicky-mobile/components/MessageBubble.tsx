@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { Message } from "@/context/AssistantContext";
@@ -8,16 +9,28 @@ interface MessageBubbleProps {
   message: Message;
 }
 
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  return `${Math.floor(diff / 3600000)}h ago`;
+function timeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  if (diff < 60_000) {
+    return "just now";
+  }
+  if (diff < 3_600_000) {
+    return `${Math.floor(diff / 60_000)}m ago`;
+  }
+  return `${Math.floor(diff / 3_600_000)}h ago`;
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const colors = useColors();
   const isUser = message.role === "user";
+  const attachment = message.meta?.attachment;
+  const liveSources = message.meta?.sources ?? [];
+  const liveHosts = liveSources.map((source) => source.host).slice(0, 2).join(", ");
+  const liveLabel = message.meta?.usedLiveInfo
+    ? liveHosts
+      ? `Live web • ${liveHosts}`
+      : "Live web"
+    : "";
 
   return (
     <View
@@ -26,7 +39,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         isUser ? styles.userContainer : styles.assistantContainer,
       ]}
     >
-      {!isUser && (
+      {!isUser ? (
         <View
           style={[
             styles.avatar,
@@ -35,7 +48,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         >
           <Ionicons name="sparkles" size={14} color="#fff" />
         </View>
-      )}
+      ) : null}
 
       <View
         style={[
@@ -48,6 +61,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               ],
         ]}
       >
+        {attachment ? (
+          <Image source={{ uri: attachment.uri }} style={styles.attachmentImage} />
+        ) : null}
+
         <Text
           style={[
             styles.text,
@@ -56,6 +73,24 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         >
           {message.text}
         </Text>
+
+        {!isUser && liveLabel ? (
+          <View
+            style={[
+              styles.liveInfoPill,
+              {
+                backgroundColor: colors.secondary,
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <Ionicons name="globe-outline" size={12} color={colors.accent} />
+            <Text style={[styles.liveInfoText, { color: colors.mutedForeground }]}>
+              {liveLabel}
+            </Text>
+          </View>
+        ) : null}
+
         <Text
           style={[
             styles.time,
@@ -66,7 +101,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </Text>
       </View>
 
-      {isUser && (
+      {isUser ? (
         <View
           style={[
             styles.avatar,
@@ -75,24 +110,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         >
           <Ionicons name="person" size={14} color={colors.mutedForeground} />
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    marginVertical: 6,
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  userContainer: {
-    justifyContent: "flex-end",
+  assistantBubble: {
+    borderWidth: 1,
+    borderBottomLeftRadius: 4,
   },
   assistantContainer: {
     justifyContent: "flex-start",
+  },
+  attachmentImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 14,
   },
   avatar: {
     width: 28,
@@ -110,14 +144,28 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    gap: 4,
+    gap: 8,
   },
-  userBubble: {
-    borderBottomRightRadius: 4,
+  container: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginVertical: 6,
+    paddingHorizontal: 16,
+    gap: 8,
   },
-  assistantBubble: {
+  liveInfoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
     borderWidth: 1,
-    borderBottomLeftRadius: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  liveInfoText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
   },
   text: {
     fontSize: 15,
@@ -128,5 +176,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: "Inter_400Regular",
     alignSelf: "flex-end",
+  },
+  userBubble: {
+    borderBottomRightRadius: 4,
+  },
+  userContainer: {
+    justifyContent: "flex-end",
   },
 });
