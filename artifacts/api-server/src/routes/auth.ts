@@ -83,18 +83,41 @@ async function upsertUser(claims: Record<string, unknown>) {
 
 // Native auth bounce endpoint.
 // Replit OIDC only accepts https:// redirect URIs on Replit-controlled
-// domains. Native (iOS/Android, including Expo Go) cannot use a custom-scheme
-// redirect URI directly with Replit OIDC. Instead, the native app uses this
-// endpoint as the OIDC redirect_uri. expo-auth-session's openAuthSessionAsync
-// will detect this URL match and close the in-app browser, returning the
-// `code` and `state` query params to the app for token exchange.
-router.get("/native-callback", (_req: Request, res: Response) => {
-  res
-    .status(200)
-    .type("html")
-    .send(
-      `<!doctype html><html><head><meta charset="utf-8"><title>Returning to Clicky…</title></head><body style="background:#0C0B0A;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div>Returning to Clicky…</div></body></html>`,
-    );
+// domains, but native browsers (especially Android Custom Tabs and Expo Go)
+// can't intercept HTTPS callbacks back into the app — only deep links.
+//
+// Flow:
+//   1. App registers `redirect_uri = .../api/native-callback?to=<deepLink>`
+//   2. Replit OIDC redirects browser here with ?code=…&state=…&to=…
+//   3. This page redirects the browser to `<deepLink>?code=…&state=…`
+//   4. The OS opens the deep link in our app; the in-app browser closes
+//      and expo-auth-session resolves with the URL.
+router.get("/native-callback", (req: Request, res: Response) => {
+  const to = typeof req.query["to"] === "string" ? req.query["to"] : "";
+
+  // Only allow well-known schemes the app actually uses.
+  const safeScheme = /^(exp|exps|clicky-mobile):\/\//.test(to);
+
+  // Forward all OIDC response params except our internal `to`.
+  const forward = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query)) {
+    if (k === "to" || typeof v !== "string") continue;
+    forward.set(k, v);
+  }
+
+  const target = safeScheme
+    ? `${to}${to.includes("?") ? "&" : "?"}${forward.toString()}`
+    : null;
+
+  // Use both an HTTP meta-refresh and JS replace so it works under any
+  // browser, including Custom Tabs which sometimes block JS-only redirects.
+  // Also include a manual link as a final fallback.
+  const escaped = target ? target.replace(/"/g, "&quot;") : "";
+  const body = target
+    ? `<!doctype html><html><head><meta charset="utf-8"><title>Returning to Clicky…</title><meta http-equiv="refresh" content="0; url=${escaped}"></head><body style="background:#0C0B0A;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;gap:16px;"><div>Returning to Clicky…</div><a href="${escaped}" style="color:#FF8A33;">Tap here if nothing happens</a><script>setTimeout(function(){window.location.replace(${JSON.stringify(target)});},10);</script></body></html>`
+    : `<!doctype html><html><head><meta charset="utf-8"><title>Returning to Clicky…</title></head><body style="background:#0C0B0A;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div>Returning to Clicky…</div></body></html>`;
+
+  res.status(200).type("html").send(body);
 });
 
 router.get("/auth/user", (req: Request, res: Response) => {

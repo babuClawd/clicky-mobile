@@ -11,6 +11,7 @@ import { Alert, Platform } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as SecureStore from "expo-secure-store";
+import * as Linking from "expo-linking";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -108,15 +109,26 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const discovery = AuthSession.useAutoDiscovery(ISSUER_URL);
-  // Replit OIDC requires an https:// redirect URI on a Replit-controlled
-  // domain. Custom schemes (clicky-mobile://) and Expo Go's exp:// URLs are
-  // rejected as "invalid_request" / cause "Failed to download remote update".
-  // We use an HTTPS bounce route on our API server; expo-auth-session's
-  // in-app browser will detect this URL and close, returning code+state.
-  // Memoize so useAuthRequest doesn't churn (which would invalidate PKCE).
-  const redirectUri = useMemo(() => `${getApiBaseUrl()}/api/native-callback`, []);
 
-  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+  // Replit OIDC only accepts https:// redirect URIs on its registered domain.
+  // But Android Custom Tabs / Expo Go can't intercept HTTPS callbacks — only
+  // deep links. So we register an HTTPS bounce URL with OIDC that includes
+  // a `?to=<appDeepLink>` query param. After OIDC adds code/state, the bounce
+  // page redirects to the deep link, which the OS opens in our app, closing
+  // the in-app browser and giving us the auth response.
+  const appDeepLink = useMemo(() => {
+    // In Expo Go: exp://<host>/--/auth-callback
+    // In standalone: clicky-mobile://auth-callback
+    return Linking.createURL("auth-callback");
+  }, []);
+
+  const redirectUri = useMemo(
+    () =>
+      `${getApiBaseUrl()}/api/native-callback?to=${encodeURIComponent(appDeepLink)}`,
+    [appDeepLink],
+  );
+
+  const [request] = AuthSession.useAuthRequest(
     {
       clientId: getClientId(),
       scopes: ["openid", "email", "profile", "offline_access"],
@@ -158,46 +170,38 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
     fetchUser();
   }, [fetchUser]);
 
-  useEffect(() => {
-    if (response?.type !== "success" || !request?.codeVerifier) return;
+  const exchangeCode = useCallback(
+    async (code: string, state: string, codeVerifier: string, nonce: string | undefined) => {
+      const apiBase = getApiBaseUrl();
+      if (!apiBase) throw new Error("Missing API base URL");
 
-    const { code, state } = response.params as { code: string; state: string };
+      const exchangeRes = await fetch(`${apiBase}/api/mobile-auth/token-exchange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          code_verifier: codeVerifier,
+          // Must exactly match the redirect_uri sent during /authorize.
+          redirect_uri: redirectUri,
+          state,
+          nonce,
+        }),
+      });
 
-    (async () => {
-      try {
-        const apiBase = getApiBaseUrl();
-        if (!apiBase) return;
-
-        const exchangeRes = await fetch(`${apiBase}/api/mobile-auth/token-exchange`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code,
-            code_verifier: request.codeVerifier,
-            redirect_uri: redirectUri,
-            state,
-            nonce: request.nonce,
-          }),
-        });
-
-        if (!exchangeRes.ok) {
-          console.error("Token exchange failed:", exchangeRes.status);
-          setIsLoading(false);
-          return;
-        }
-
-        const data = (await exchangeRes.json()) as { token?: string };
-        if (data.token) {
-          await SecureStore.setItemAsync(AUTH_TOKEN_KEY, data.token);
-          setIsLoading(true);
-          await fetchUser();
-        }
-      } catch (err) {
-        console.error("Token exchange error:", err);
-        setIsLoading(false);
+      if (!exchangeRes.ok) {
+        const text = await exchangeRes.text().catch(() => "");
+        throw new Error(`Token exchange failed (${exchangeRes.status}): ${text || "no body"}`);
       }
-    })();
-  }, [response, request, redirectUri, fetchUser]);
+
+      const data = (await exchangeRes.json()) as { token?: string };
+      if (!data.token) throw new Error("Token exchange returned no token");
+
+      await SecureStore.setItemAsync(AUTH_TOKEN_KEY, data.token);
+      setIsLoading(true);
+      await fetchUser();
+    },
+    [redirectUri, fetchUser],
+  );
 
   const login = useCallback(async () => {
     if (!discovery) {
@@ -211,14 +215,44 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
       Alert.alert("Sign-in not ready", "Please try again in a moment.");
       return;
     }
+
     try {
-      const result = await promptAsync();
-      if (result.type === "error") {
-        Alert.alert(
-          "Sign-in failed",
-          result.error?.message ?? "Authentication did not complete.",
-        );
+      // Build the OIDC authorization URL ourselves (with the request's PKCE
+      // params already baked in by useAuthRequest).
+      const authUrl = await request.makeAuthUrlAsync(discovery);
+
+      // Open the in-app browser. We tell it to watch for the APP DEEP LINK
+      // (not the HTTPS bounce). The bounce page will redirect the browser
+      // to the deep link, which the OS catches and the browser closes.
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, appDeepLink, {
+        showInRecents: true,
+      });
+
+      if (result.type === "cancel" || result.type === "dismiss") return;
+      if (result.type !== "success" || !result.url) {
+        Alert.alert("Sign-in failed", "Authentication did not complete.");
+        return;
       }
+
+      const url = new URL(result.url);
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const error = url.searchParams.get("error");
+
+      if (error) {
+        Alert.alert("Sign-in failed", url.searchParams.get("error_description") || error);
+        return;
+      }
+      if (!code || !state) {
+        Alert.alert("Sign-in failed", "Missing authorization code in response.");
+        return;
+      }
+      if (!request.codeVerifier) {
+        Alert.alert("Sign-in failed", "Missing PKCE verifier; please try again.");
+        return;
+      }
+
+      await exchangeCode(code, state, request.codeVerifier, request.nonce);
     } catch (err) {
       console.error("Login error:", err);
       Alert.alert(
@@ -226,7 +260,7 @@ function NativeAuthProvider({ children }: { children: ReactNode }) {
         err instanceof Error ? err.message : "Unknown error during sign-in.",
       );
     }
-  }, [discovery, request, promptAsync]);
+  }, [discovery, request, appDeepLink, exchangeCode]);
 
   const logout = useCallback(async () => {
     try {
