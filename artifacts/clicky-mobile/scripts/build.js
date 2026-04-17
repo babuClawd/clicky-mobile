@@ -505,6 +505,52 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   console.log("Manifests updated");
 }
 
+function buildWebExport(domain, expoPublicReplId) {
+  return new Promise((resolve, reject) => {
+    const outputDir = path.join(projectRoot, "static-build", "web");
+    if (fs.existsSync(outputDir)) {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+
+    console.log("Exporting web build (expo export --platform web)...");
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_DOMAIN: domain,
+      EXPO_PUBLIC_REPL_ID: expoPublicReplId || "",
+    };
+
+    const child = spawn(
+      "pnpm",
+      [
+        "exec",
+        "expo",
+        "export",
+        "--platform",
+        "web",
+        "--output-dir",
+        "static-build/web",
+        "--clear",
+      ],
+      { stdio: "inherit", cwd: projectRoot, env },
+    );
+
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        const indexPath = path.join(outputDir, "index.html");
+        if (!fs.existsSync(indexPath)) {
+          reject(new Error("Web export completed but index.html is missing"));
+          return;
+        }
+        console.log("Web export ready: static-build/web/");
+        resolve();
+      } else {
+        reject(new Error(`Web export failed with exit code ${code}`));
+      }
+    });
+  });
+}
+
 async function main() {
   console.log("Building static Expo Go deployment...");
 
@@ -517,6 +563,16 @@ async function main() {
 
   prepareDirectories(timestamp);
   clearMetroCache();
+
+  // Web export first — runs its own metro instance, no port conflict.
+  // If this fails, we still want the deployment to succeed (native bundles
+  // are the primary product), so log and continue rather than abort.
+  try {
+    await buildWebExport(domain, expoPublicReplId);
+  } catch (err) {
+    console.error("WARNING: web export failed:", err.message);
+    console.error("Deployment will continue without a web build.");
+  }
 
   await startMetro(domain, expoPublicReplId);
 
